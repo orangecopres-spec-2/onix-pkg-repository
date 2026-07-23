@@ -1,6 +1,6 @@
-PROG = my_program
+PROG = opkg
 SRCS = opkg.c
 LIBS = -larchive
 
 $(PROG): $(SRCS)
-	gcc -o $(PROG) $(SRCS) $(LIBS)
+        gcc -o $(PROG) $(SRCS) $(LIBS)
