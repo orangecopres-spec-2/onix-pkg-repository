@@ -1,5 +1,6 @@
-PACKAGE=    runtime
-PROG=       opkg
-SRCS=       opkg.c
+PROG = my_program
+SRCS = opkg.c
+LIBS = -larchive
 
-.include <bsd.prog.mk>
+$(PROG): $(SRCS)
+	gcc -o $(PROG) $(SRCS) $(LIBS)
