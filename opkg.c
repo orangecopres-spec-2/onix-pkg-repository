@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,50 +10,52 @@
 #define BLOCK_SIZE 10240
 #define DB_DIR "/var/db/opkg/packages"
 
+// Function prototypes
+void print_usage(const char *prog_name);
+int handle_create(const char *name, const char *version, const char *binary_path);
+int handle_install(const char *filename);
+int handle_remove(const char *pkg_name);
+int handle_brewinstall(); // for Homebrew installation
+
+// Function to print usage information
 void print_usage(const char *prog_name) {
     fprintf(stderr, "Onix Package Manager (opkg)\n");
     fprintf(stderr, "Usage:\n");
     fprintf(stderr, "  %s create <pkg_name> <version> <binary_path>\n", prog_name);
     fprintf(stderr, "  %s install <package.o.pkg>\n", prog_name);
     fprintf(stderr, "  %s remove <pkg_name>\n", prog_name);
+    fprintf(stderr, "  %s brewinstall\n", prog_name);
 }
 
-
+// Handler to create a package
 int handle_create(const char *name, const char *version, const char *binary_path) {
-    char cmd[512]; // Fixed: Explicit buffer size to prevent memory corruption
+    char cmd[512];
     printf("Creating package '%s.o.pkg' for Onix...\n", name);
-
     system("rm -rf stage");
     if (system("mkdir -p stage/metadata stage/files/bin") != 0) return 1;
-
     snprintf(cmd, sizeof(cmd), "cp %s stage/files/bin/", binary_path);
     if (system(cmd) != 0) return 1;
-
     FILE *info = fopen("stage/metadata/opkg-info", "w");
     if (!info) return 1;
     fprintf(info, "pkg_name: %s\n", name);
     fprintf(info, "pkg_version: %s\n", version);
     fprintf(info, "pkg_description: built package for Onix\n");
     fclose(info);
-
     snprintf(cmd, sizeof(cmd), "tar -czf %s.o.pkg -C stage metadata files", name);
     if (system(cmd) != 0) return 1;
-
     system("rm -rf stage");
     printf("Successfully built %s.o.pkg!\n", name);
     return 0;
 }
 
-
+// Helper to parse package name from archive
 void parse_package_name(struct archive *a, struct archive_entry *entry, char *out_name, size_t max_len) {
     la_int64_t size = archive_entry_size(entry);
     char *buffer = malloc(size + 1);
     if (!buffer) return;
-
     if (archive_read_data(a, buffer, size) == size) {
         buffer[size] = '\0';
         printf("=== PACKAGE MANIFEST ===\n%s========================\n", buffer);
-        
         char *line = strtok(buffer, "\n");
         while (line) {
             if (strncmp(line, "pkg_name:", 9) == 0) {
@@ -65,7 +68,7 @@ void parse_package_name(struct archive *a, struct archive_entry *entry, char *ou
     free(buffer);
 }
 
-
+// Handler to install a package
 int handle_install(const char *filename) {
     struct archive *a;
     struct archive_entry *entry;
@@ -93,25 +96,19 @@ int handle_install(const char *filename) {
 
         if (strcmp(current_path, "metadata/opkg-info") == 0) {
             parse_package_name(a, entry, pkg_name, sizeof(pkg_name));
-            
-            char list_path[256]; 
-            snprintf(list_path, sizeof(list_path), DB_DIR "/%s.list", pkg_name);
+            char list_path[256];
+            snprintf(list_path, sizeof(list_path), "%s/%s.list", DB_DIR, pkg_name);
             list_file = fopen(list_path, "w");
             continue; 
         }
 
-       
         if (strncmp(current_path, "files/", 6) == 0) {
-            const char *dest_path = current_path + 6; 
-            
-            
+            const char *dest_path = current_path + 6;
             if (strlen(dest_path) == 0 || dest_path[strlen(dest_path) - 1] == '/') {
                 continue;
             }
-
             archive_entry_set_pathname(entry, dest_path);
             printf("Extracting: /%s\n", dest_path);
-            
             r = archive_read_extract(a, entry, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM);
             if (r != ARCHIVE_OK) {
                 fprintf(stderr, "Extraction error: %s\n", archive_error_string(a));
@@ -127,11 +124,11 @@ int handle_install(const char *filename) {
     return 0;
 }
 
-
+// Handler to remove a package
 int handle_remove(const char *pkg_name) {
-    char list_path[256]; 
-    char file_path[256]; 
-    snprintf(list_path, sizeof(list_path), DB_DIR "/%s.list", pkg_name);
+    char list_path[256];
+    char file_path[256];
+    snprintf(list_path, sizeof(list_path), "%s/%s.list", DB_DIR, pkg_name);
 
     if (access(list_path, F_OK) != 0) {
         fprintf(stderr, "Error: Package '%s' is not installed.\n", pkg_name);
@@ -148,7 +145,6 @@ int handle_remove(const char *pkg_name) {
 
     while (fgets(file_path, sizeof(file_path), list_file)) {
         file_path[strcspn(file_path, "\r\n")] = '\0';
-
         if (strlen(file_path) > 0) {
             printf("Deleting: %s\n", file_path);
             if (unlink(file_path) != 0) {
@@ -158,12 +154,22 @@ int handle_remove(const char *pkg_name) {
     }
 
     fclose(list_file);
-
     if (unlink(list_path) != 0) {
         perror("Warning: Could not remove tracking manifest");
     }
-
     printf("Package '%s' successfully uninstalled.\n", pkg_name);
+    return 0;
+}
+
+// Handler to install 'onix' using Homebrew
+int handle_brewinstall() {
+    printf("Installing 'onix' package via Homebrew...\n");
+    int ret = system("brew install onix");
+    if (ret != 0) {
+        fprintf(stderr, "Failed to install 'onix' via Homebrew.\n");
+        return 1;
+    }
+    printf("'onix' installed successfully via Homebrew.\n");
     return 0;
 }
 
@@ -195,7 +201,10 @@ int main(int argc, char **argv) {
             return 1;
         }
         return handle_remove(argv[2]);
-    } 
+    }
+    else if (strcmp(subcommand, "brewinstall") == 0) {
+        return handle_brewinstall();
+    }
     else {
         fprintf(stderr, "Unknown subcommand: %s\n", subcommand);
         print_usage(argv[0]);
